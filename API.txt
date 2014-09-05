@@ -1,6 +1,6 @@
-This document describes the Plantlife API.
+This document describes the Plantlife mod API.
 
-Last revision: 2013-01-30
+Last revision: 2014-05-24
 
 
 =========
@@ -10,7 +10,7 @@ Functions
 There are three main functions defined by the main "plants_lib" mod:
 
 spawn_on_surfaces()
-generate_on_surfaces()
+register_generate_plant()
 grow_plants()
 
 There are also several internal, helper functions that can be called if so
@@ -18,9 +18,9 @@ desired, but they are not really intended for use by other mods and may change
 at any time.  They are briefly described below these main functions, but see
 init.lua for details.
 
-All functions in plants lib are declared locally to avoid namespace collisions
-with other mods.  They are accessible via the "plantslib" method, e.g.
-plantslib:spawn_on_surfaces() and so forth.
+Most functions in plants lib are declared locally to avoid namespace
+collisions with other mods.  They are accessible via the "plantslib" method,
+e.g. plantslib:spawn_on_surfaces() and so forth.
 
 =====
 spawn_on_surfaces(biome)
@@ -75,7 +75,7 @@ biome = {
 	avoid_nodes = {table},	-- same meaning as savoid, above
 	avoid_radius = num,	-- same as sradius
 	seed_diff = num,	-- The Perlin seed difference value passed to
-				-- the minetest.env:get_perlin() function.
+				-- the minetest.get_perlin() function.
 				-- Used along with the global Perlin controls
 				-- below to create the "biome" in which the
 				-- plants will spawn.  Defaults to 0 if not
@@ -238,12 +238,12 @@ checking is disabled.  Same holds true for the nneighbors bit above that.
 
 
 =====
-plantslib:register_generate_plant(biome, node_or_function_or_treedef)
+plantslib:register_generate_plant(biome, nodes_or_function_or_treedef)
 
 To register an object to be spawned at mapgen time rather than via an ABM,
 call this function with two parameters:  a table with your object's biome
-information, and a string or table describing what to do if the engine finds a
-suitable node (see below).
+information, and a string, function, or table describing what to do if the
+engine finds a suitable surface node (see below).
 
 The biome table contains quite a number of options, though there are fewer 
 here than are available in the ABM-based spawner, as some stuff doesn't make
@@ -269,12 +269,12 @@ biome = {
 				-- avoided.  If this or the avoid_nodes value
 				-- is nil or omitted, this check is skipped.
 				-- Avoid using excessively large radii or you
-				-- will slow down the ABM.
+				-- will slow down the map generator.
 	rarity = num,		-- how rare should this object be in its
 				-- biome? Larger values make objects more
 				-- rare, via:  math.random(1,100) > this
 	max_count = num,	-- The absolute maximum number of your object
-				-- that should be allowed to spwn in a 5x5x5
+				-- that should be allowed to spawn in a 5x5x5
 				-- mapblock area (80x80x80 nodes).  Defaults
 				-- to 5, but be sure you set this to some 
 				-- reasonable value depending on your object
@@ -331,25 +331,35 @@ biome = {
 				-- empty region above the spawn target.
 				-- Useful when adding trees to snow biomes.
 				-- Defaults to false.
-	spawn_replace_node = bool -- same as with the ABM spawner.
+	spawn_replace_node = bool, -- same as with the ABM spawner.
+	random_facedir = {table}, -- same as with the ABM spawner.
 }
 
-Regarding node_or_function_or_treedef, this must either be table with an 
-L-Systems tree definition, or a string with a node or function name.
+Regarding nodes_or_function_or_treedef, this must either be a string naming
+a node to spawn, a table with a list of nodes to choose from, a table with an
+L-Systems tree definition, or a function.
 
-If you specified a string, the code will attempt to determine, as needed, 
-whether that string specifies a node name.  If it does, that node will be
-placed on top of the target position directly.
+If you specified a string, the code will attempt to determine whether that
+string specifies a valid node name.  If it does, that node will be placed on
+top of the target position directly (unless one of the other mapgen options
+directs the code to do otherwise).
 
-If it wasn't a node, the code will assume you meant to specify a function
-name, in which case  that function will be passed a single position parameter
-(in the usual table format), indicating where the named function should place
-the object.  It is called in the form of "somefunction(pos)", and behaves much
-like a typical callback.
+If you specified a table and there is no "axiom" field, the code assumes that
+it is a list of nodes.  Simply name one node per entry in the list, e.g.
+{"default:junglegrass", "default:dry_shrub"} and so on, for as many nodes as
+you want to list.  A random node from the list will be chosen each time the
+code goes to place a node.
 
-If you specified a table, the code assumes this table contains an L-Systems
-tree definition, then that definition will be passed directly to the
-spawn_tree() function along with the position to spawn the tree on.
+If you specified a table, and there *is* an "axiom" field, the code assumes
+that this table contains an L-Systems tree definition, which will be passed
+directly to the engine's spawn_tree() function along with the position on
+which to spawn the tree.
+
+You can also supply a function to be directly executed, which is given the
+current node position (the usual "pos" table format) as its sole argument.  It
+will be called in the form:
+
+	somefunction(pos)
 
 
 =====
@@ -458,7 +468,7 @@ one it finds as a facedir value, or nil if there are no adjacent walls.
 =====
 is_node_loaded(pos)
 
-This acts as a wrapper for the minetest.env:get_node_or_nil(node_pos)
+This acts as a wrapper for the minetest.get_node_or_nil(node_pos)
 function and accepts a single position parameter.  Returns true if the node in
 question is already loaded, or false if not.
 
@@ -510,7 +520,7 @@ Fertile Ground Mapping
 ======================
 
 The mod uses Perlin noise to create "biomes" of the various plants, via the
-minetest.env:get_perlin() function.  At present, there are three layers of
+minetest.get_perlin() function.  At present, there are three layers of
 Perlin noise used.
 
 The first one is for a "fertile ground" layer, which I tend to refer to as the
@@ -577,9 +587,9 @@ above, Perlin values can be tested to determine the approximate humidity of
 the *air* in the area.  This humidity map is basically the perlin layer used
 for deserts.
 
-A value of -1.0 is very moist (basically a thick fog, if it could be seen), a
-value of +0.4 represents the edge of a desert as usually seen in the game, and
-a value of +1.0 is as dry as a bone.
+A value of +1.0 is very moist (basically a thick fog, if it could be seen), a
+value of roughly +0.25 represents the edge of a desert as usually seen in the
+game, and a value of -1.0 is as dry as a bone.
 
 This does not check for nearby water, just general air humidity, and that
 being the case, nearby ground does not affect the reported humidity of a
